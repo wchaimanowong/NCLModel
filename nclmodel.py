@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from random import *
+import sys
 from math import *
 import numpy as np
 
@@ -78,80 +79,67 @@ class DisplayShelf:
         
 
 class NCLModel:
-    def __init__(self, _f, _display_shelf):
-        self.f = _f
+    def __init__(self, _display_shelf):
         self.display_shelf = _display_shelf
+        
+        # Regularization constant making sure rho is not too small so that 1/rho is not too large.
+        self._reg_rho = 0.0001
     
-    
-    def precompute_f_mat(self, _f_params = None):
-        self.f_mat = []
+    def precompute_f_mat(self, _f, _f_params = None):
+        self._f_mat = []
         
         for k in range(self.display_shelf.num_designs()):
-            self.f_mat.append([])
+            self._f_mat.append([])
             for i in range(self.display_shelf.num_items(k)):
-                self.f_mat[-1].append([])
+                self._f_mat[-1].append([])
                 
                 if (self.display_shelf.designs[k][i] == None):
-                    self.f_mat[-1][-1].append(0)
+                    self._f_mat[-1][-1].append(0)
                 else:
                     xi = self.display_shelf.designs[k][i][0]
                     yi = self.display_shelf.designs[k][i][1]
                     
                     for j in range(self.display_shelf.num_items(k)):
                         if ((i == j) or (self.display_shelf.designs[k][j] == None)):
-                            self.f_mat[-1][-1].append(0)
+                            self._f_mat[-1][-1].append(0)
                         else:
                             xj = self.display_shelf.designs[k][j][0]
                             yj = self.display_shelf.designs[k][j][1]
                             
-                            self.f_mat[-1][-1].append(self.f((xi,yi),(xj,yj), _f_params))
+                            self._f_mat[-1][-1].append(_f((xi,yi),(xj,yj), _f_params))
                             
-        self.f_mat = np.array(self.f_mat)
+        self._f_mat = np.array(self._f_mat)
     
-    def compute_model(self, _x, _a, _display_id, s = num_items*[0]):
-        _P_model_mat = np.ones(num_items)
-        w = np.array(x[0:num_items])
-        #w[0] = 0
-        a = np.array(x[num_items:num_items + num_attr_param(P_model)])
-    #    if (len(a) > 0):
-    #        a[0] = 0
-        beta = list(x[num_items + num_attr_param(P_model):
-            num_items + num_attr_param(P_model) + num_dist_param(P_model) - 2])
-        rho_ = np.exp(x[-2]) + reg_rho
-        rho = rho_/(rho_ + 1)
-        pe = abs(x[-1]) # Price elasticity.
-        prices = np.array(prices)
-        s = -sys.float_info.max*np.array(s)
-        if ((P_model == 'scl') or (P_model == 'sclexp') or 
-            (P_model == 'sclinv') or (P_model == 'scladj')):
-            f = []
-            if (P_model == 'sclexp'):
-                _beta = abs(beta[0]) + sys.float_info.min
-                f = np.power(np_f_exp_mat[display_type], _beta)
-            elif (P_model == 'sclinv'):
-                _beta = abs(beta[0]) + sys.float_info.min
-                f = np.power(np_f_inv_mat[display_type], _beta)
-            elif (P_model == 'scladj'):
-                f = np_f_adj_mat[display_type]
-            else:
-                ff_i = lambda i: np.array([ff(i,j,beta) for j in range(num_items)])
-                f = np.array([ff_i(i) for i in range(num_items)])
-            f = np.transpose(np.transpose(f[perm])[perm])
-            D_alpha = np.sum(f, axis = 1)
-            alpha = np.nan_to_num(f/D_alpha[:, None])
-            aa = np.array([a[np_loc_to_reg[display_type][perm[i]]] for i in range(num_items)])
-            U = np.power(alpha*(np.exp(w + aa - pe*prices + s)[:,None]),1/rho)
-            DU = 0.5*np.sum(np.power(U + np.transpose(U),rho))
-            P1 = np.nan_to_num(np.power(U + np.transpose(U), rho)/DU)
-            P2 = np.nan_to_num(U/(U + np.transpose(U)))
-            _P_model_mat = np.sum(P1*P2, axis = 1)
-        elif (P_model == 'mnl'):
-            u = np.exp(w - pe*prices + s)
-            _P_model_mat = u / np.sum(u)
-        elif (P_model == '4or'):
-            aa = np.array([a[np_loc_to_reg[display_type][perm[i]]] for i in range(num_items)])
-            u = np.exp(w + aa - pe*prices + s)
-            _P_model_mat = u / np.sum(u)
+    def compute_model(self, _x, _a, _rho, _display_id, _perm = None, _f_func = None, _f_params = None, _s = None):
+        num_items = self.shelf_display.num_items(_display_id)
+        to_part = self.shelf_display.to_part
+        
+        w = np.array(_x)
+        a = np.array(_a)
+        rho = np.exp(_rho) + self._reg_rho
+        rho = rho/(rho + 1)
+        
+        if (_s == None):
+            s = np.array(self.shelf_display.num_items(_display_id)*[0])
         else:
-            pass
-        return _P_model_mat    
+            s = -sys.float_info.max*np.array(_s)
+            
+        if (_perm == None):
+            perm = np.arrange(num_items)
+        else:
+            perm = np.array(_perm)
+        
+        if (_f_func == None):
+            f = self._f_mat
+        else:
+            f = _f_func(self._f_mat, _f_params)
+
+        f = np.transpose(np.transpose(f[perm])[perm])
+        D_alpha = np.sum(f, axis = 1)
+        alpha = np.nan_to_num(f/D_alpha[:, None])
+        aa = np.array([a[to_part[_display_id][perm[i]]] for i in range(num_items)])
+        U = np.power(alpha*(np.exp(w + aa + s)[:,None]),1/rho)
+        DU = 0.5*np.sum(np.power(U + np.transpose(U),rho))
+        P1 = np.nan_to_num(np.power(U + np.transpose(U), rho)/DU)
+        P2 = np.nan_to_num(U/(U + np.transpose(U)))
+        self.model = np.sum(P1*P2, axis = 1)
