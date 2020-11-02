@@ -51,19 +51,19 @@ class DisplayShelf:
         self.to_part = []
         for k in range(self.num_designs()):
             self.to_part.append([])
-            for i in range(self.designs[k]):
+            for i in range(len(self.designs[k])):
                 xi = self.designs[k][i][0]
                 yi = self.designs[k][i][1]
                 
                 ax = 0
                 ay = 0
-                ay_max = int(self.num_regions/self.num_columns)
-                if (self.num_regions%self.num_columns):
+                ay_max = int(self.num_partitions/self.num_columns)
+                if (self.num_partitions%self.num_columns):
                     ay = int(yi/(self.height/(ay_max+1)))
                 else:
                     ay = int(yi/(self.height/ay_max))
-                if ((ay == ay_max) and (self.num_regions%self.num_columns)):
-                    ax = int(xi/(self.width/(self.num_regions%self.num_columns)))
+                if ((ay == ay_max) and (self.num_partitions%self.num_columns)):
+                    ax = int(xi/(self.width/(self.num_partitions%self.num_columns)))
                 else:
                     ax = int(xi/(self.width/self.num_columns))
                 self.to_part[-1].append(ax + self.num_columns*ay) 
@@ -76,7 +76,14 @@ class DisplayShelf:
         
     def clear_designs(self):
         self.designs = []
-        
+
+def f_exp(p1, p2, _params):
+    dist = pow(pow(p1[0]-p2[0],2.0) + pow(p1[1]-p2[1],2.0), 0.5) 
+    return np.exp(-dist)
+
+def f_inv(p1, p2, _params):
+    dist = pow(pow(p1[0]-p2[0],2.0) + pow(p1[1]-p2[1],2.0), 0.5) 
+    return 1/dist
 
 class NCLModel:
     def __init__(self, _display_shelf):
@@ -114,11 +121,12 @@ class NCLModel:
         num_items = self.shelf_display.num_items(_display_id)
         to_part = self.shelf_display.to_part
         
-        w = np.array(_x)
+        x = np.array(_x)
         a = np.array(_a)
         rho = np.exp(_rho) + self._reg_rho
         rho = rho/(rho + 1)
         
+        # TODO : Add error handlers.
         if (_s == None):
             s = np.array(self.shelf_display.num_items(_display_id)*[0])
         else:
@@ -138,8 +146,14 @@ class NCLModel:
         D_alpha = np.sum(f, axis = 1)
         alpha = np.nan_to_num(f/D_alpha[:, None])
         aa = np.array([a[to_part[_display_id][perm[i]]] for i in range(num_items)])
-        U = np.power(alpha*(np.exp(w + aa + s)[:,None]),1/rho)
+        U = np.power(alpha*(np.exp(x + aa + s)[:,None]),1/rho)
         DU = 0.5*np.sum(np.power(U + np.transpose(U),rho))
         P1 = np.nan_to_num(np.power(U + np.transpose(U), rho)/DU)
         P2 = np.nan_to_num(U/(U + np.transpose(U)))
         self.model = np.sum(P1*P2, axis = 1)
+
+
+ds = DisplayShelf(4, 2)
+ds.generate_designs(5, 4, True)
+model = NCLModel(ds)
+model.precompute_f_mat(f_inv)
