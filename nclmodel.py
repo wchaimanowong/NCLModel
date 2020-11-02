@@ -76,5 +76,10 @@ class DisplayShelf:
         self.designs = []
         
 
-#class NCLModel:   
-#    def __init__(self, u, f, L):
+class NCLModel:
+    def __init__(self, _f, _display_shelf):
+        self.f = _f
+        self.display_shelf = _display_shelf
+    
+    def eval_f(self, x):
+        return self.f(x)
