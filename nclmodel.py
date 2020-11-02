@@ -85,6 +85,8 @@ def f_inv(p1, p2, _params):
     dist = pow(pow(p1[0]-p2[0],2.0) + pow(p1[1]-p2[1],2.0), 0.5) 
     return 1/dist
 
+
+
 class NCLModel:
     def __init__(self, _display_shelf):
         self.display_shelf = _display_shelf
@@ -118,8 +120,8 @@ class NCLModel:
         self._f_mat = np.array(self._f_mat)
     
     def compute_model(self, _x, _a, _rho, _display_id, _perm = None, _f_func = None, _f_params = None, _s = None):
-        num_items = self.shelf_display.num_items(_display_id)
-        to_part = self.shelf_display.to_part
+        num_items = self.display_shelf.num_items(_display_id)
+        to_part = self.display_shelf.to_part[_display_id]
         
         x = np.array(_x)
         a = np.array(_a)
@@ -128,32 +130,33 @@ class NCLModel:
         
         # TODO : Add error handlers.
         if (_s == None):
-            s = np.array(self.shelf_display.num_items(_display_id)*[0])
+            s = np.array(num_items*[0])
         else:
             s = -sys.float_info.max*np.array(_s)
             
         if (_perm == None):
-            perm = np.arrange(num_items)
+            perm = np.arange(num_items)
         else:
             perm = np.array(_perm)
         
         if (_f_func == None):
-            f = self._f_mat
+            f = np.array(self._f_mat[_display_id])
         else:
-            f = _f_func(self._f_mat, _f_params)
+            f = _f_func(self._f_mat[_display_id], _f_params)
 
         f = np.transpose(np.transpose(f[perm])[perm])
         D_alpha = np.sum(f, axis = 1)
         alpha = np.nan_to_num(f/D_alpha[:, None])
-        aa = np.array([a[to_part[_display_id][perm[i]]] for i in range(num_items)])
+        aa = np.array([a[to_part[perm[i]]] for i in range(num_items)])
         U = np.power(alpha*(np.exp(x + aa + s)[:,None]),1/rho)
         DU = 0.5*np.sum(np.power(U + np.transpose(U),rho))
         P1 = np.nan_to_num(np.power(U + np.transpose(U), rho)/DU)
         P2 = np.nan_to_num(U/(U + np.transpose(U)))
-        self.model = np.sum(P1*P2, axis = 1)
+        self.choice = np.sum(P1*P2, axis = 1)
 
 
 ds = DisplayShelf(4, 2)
 ds.generate_designs(5, 4, True)
 model = NCLModel(ds)
 model.precompute_f_mat(f_inv)
+model.compute_model([0,1,2,3], [1,2,3,4], 0, 0)
