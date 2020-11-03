@@ -85,7 +85,22 @@ def f_inv(p1, p2, _params):
     dist = pow(pow(p1[0]-p2[0],2.0) + pow(p1[1]-p2[1],2.0), 0.5) 
     return 1/dist
 
+def f_tanh(p1, p2, _params):
+    dist = pow(pow(p1[0]-p2[0],2.0) + pow(p1[1]-p2[1],2.0), 0.5) 
+    r = _params[0]
+    a = _params[1]
+    return np.tanh(a*(dist - r))
 
+def f_hard_tanh(p1, p2, _params):
+    dist = pow(pow(p1[0]-p2[0],2.0) + pow(p1[1]-p2[1],2.0), 0.5) 
+    r = _params
+    if dist < r:
+        return 1
+    else:
+        return 0
+
+def f_const(p1, p2, _params):
+    return 1
 
 class NCLModel:
     def __init__(self, _display_shelf):
@@ -93,6 +108,10 @@ class NCLModel:
         
         # Regularization constant making sure rho is not too small so that 1/rho is not too large.
         self._reg_rho = 0.0001
+        
+        def id_f(f, gamma): return np.array(f)
+        self.f_func = id_f
+        self._f_mat = []
     
     def precompute_f_mat(self, _f, _f_params = None):
         self._f_mat = []
@@ -119,7 +138,7 @@ class NCLModel:
                             
         self._f_mat = np.array(self._f_mat)
     
-    def compute_model(self, _x, _a, _rho, _display_id, _perm = None, _f_func = None, _f_params = None, _s = None):
+    def compute_model(self, _x, _a, _rho, _display_id = 0, _perm = None, _f_func = None, _gamma = None, _s = None):
         num_items = self.display_shelf.num_items(_display_id)
         to_part = self.display_shelf.to_part[_display_id]
         
@@ -128,7 +147,7 @@ class NCLModel:
         rho = np.exp(_rho) + self._reg_rho
         rho = rho/(rho + 1)
         
-        # TODO : Add error handlers.
+        # TODO: Add error handlers.
         if (_s == None):
             s = np.array(num_items*[0])
         else:
@@ -140,9 +159,9 @@ class NCLModel:
             perm = np.array(_perm)
         
         if (_f_func == None):
-            f = np.array(self._f_mat[_display_id])
+            f = self.f_func(self._f_mat[_display_id], _gamma)
         else:
-            f = _f_func(self._f_mat[_display_id], _f_params)
+            f = _f_func(self._f_mat[_display_id], _gamma)
 
         f = np.transpose(np.transpose(f[perm])[perm])
         D_alpha = np.sum(f, axis = 1)
@@ -153,6 +172,50 @@ class NCLModel:
         P1 = np.nan_to_num(np.power(U + np.transpose(U), rho)/DU)
         P2 = np.nan_to_num(U/(U + np.transpose(U)))
         self.choice = np.sum(P1*P2, axis = 1)
+    
+    # NCL Exponential model    
+    @classmethod
+    def ExpModel(cls, _display_shelf):
+        model = cls(_display_shelf)
+        def pow_f(f, gamma): return np.power(np.array(f), gamma)
+        model.f_func = pow_f
+        model.precompute_f_mat(f_exp)
+        return model
+    
+    # NCL Inverse model
+    @classmethod
+    def InvModel(cls, _display_shelf):
+        model = cls(_display_shelf)
+        def pow_f(f, gamma): return np.power(np.array(f), gamma)
+        model.f_func = pow_f
+        model.precompute_f_mat(f_inv)
+        return model    
+    
+    # NCL adjecent model. fij = 1 if i is adjecent to j and 0 otherwise.
+    @classmethod
+    def AdjModel(cls, _num_rows, _num_cols):
+        _display_shelf = DisplayShelf(_num_rows*_num_cols, _num_cols)
+        _display_shelf.generate_designs(1, _num_rows*_num_cols, True)
+        model = cls(_display_shelf)
+        model.precompute_f_mat(f_hard_tanh, 1.1)
+        return model
+    
+    # Free-style model where all fij must be specified. 
+    @classmethod
+    def FModel(cls, _num_items):
+        _display_shelf = DisplayShelf(_num_items, _num_items)
+        _display_shelf.generate_designs(1, _num_items, True)
+        model = cls(_display_shelf)
+        def f_mat_func(f, gamma): 
+            _f = np.zeros((_num_items, _num_items))
+            for i in range(_num_items):
+                for j in range(i):
+                    _f[i][j] = np.exp(gamma[i*(i-1)/2 + j])
+                    _f[j][i] = _f[i][j]
+            return _f
+        model.f_func = f_mat_func
+        model.precompute_f_mat(f_const)
+        return model
 
 
 ds = DisplayShelf(4, 2)
