@@ -89,7 +89,7 @@ def f_tanh(p1, p2, _params):
     dist = pow(pow(p1[0]-p2[0],2.0) + pow(p1[1]-p2[1],2.0), 0.5) 
     r = _params[0]
     a = _params[1]
-    return np.tanh(a*(dist - r))
+    return (1/2)*(1 - np.tanh(a*(dist - r)))
 
 def f_hard_tanh(p1, p2, _params):
     dist = pow(pow(p1[0]-p2[0],2.0) + pow(p1[1]-p2[1],2.0), 0.5) 
