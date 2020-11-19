@@ -76,31 +76,55 @@ class DisplayShelf:
         
     def clear_designs(self):
         self.designs = []
+        
+# Distance functions default libraries:
+        
+def dist_l2(p1, p2):
+    return pow(pow(p1[0]-p2[0],2.0) + pow(p1[1]-p2[1],2.0), 0.5)
 
-def f_exp(p1, p2, _params):
-    dist = pow(pow(p1[0]-p2[0],2.0) + pow(p1[1]-p2[1],2.0), 0.5) 
-    return np.exp(-dist)
+def dist_l1(p1, p2):
+    return abs(p1[0]-p2[0]) + abs(p1[1]-p2[1])
 
-def f_inv(p1, p2, _params):
-    dist = pow(pow(p1[0]-p2[0],2.0) + pow(p1[1]-p2[1],2.0), 0.5) 
-    return 1/dist
+def dist_l_infty(p1, p2):
+    return max(p1[0]-p2[0], p1[1]-p2[1])
 
-def f_tanh(p1, p2, _params):
-    dist = pow(pow(p1[0]-p2[0],2.0) + pow(p1[1]-p2[1],2.0), 0.5) 
+def dist_const(p1, p2):
+    return int((p1[0]==p2[0]) and (p1[1]==p2[1]))
+        
+# f functions default libraries:
+
+def f_exp(_dist, _params = 1.0):
+    if (_params == None): _params = 1.0
+    _dist = np.array(_dist)
+    _zeros = np.zeros(_dist.shape)
+    _gamma = abs(_params)
+    return np.exp(-_gamma*_dist, out=_zeros, where=(_dist!=0))
+
+def f_inv(_dist, _params = 1.0):
+    if (_params == None): _params = 1.0
+    _dist = np.array(_dist)
+    _zeros = np.zeros(_dist.shape)
+    _gamma = abs(_params)
+    return np.divide(1.0, np.power(_dist, _gamma), out=_zeros, where=(_dist!=0))
+
+def f_tanh(_dist, _params = [2.0, 1.0]):
+    if (_params == None): _params = [2.0, 1.0]
     r = _params[0]
     a = _params[1]
-    return (1/2)*(1 - np.tanh(a*(dist - r)))
+    result = (1/2)*(1 - np.tanh(a*(_dist - r)))
+    return (_dist==0)*result
 
-def f_hard_tanh(p1, p2, _params):
-    dist = pow(pow(p1[0]-p2[0],2.0) + pow(p1[1]-p2[1],2.0), 0.5) 
+def f_hard_tanh(_dist, _params = 1.1):
+    if (_params == None): _params = 1.1
     r = _params
-    if dist < r:
-        return 1
-    else:
-        return 0
+    _dist[np.logical_and(_dist < r, _dist > 0)] == 1
+    _dist[_dist >= r] == 0
+    return _dist
 
-def f_const(p1, p2, _params):
-    return 1
+def f_const(_dist, _params = 0.0):
+    _dist = np.array(_dist)
+    _dist[_dist > 0] = 1
+    return _dist
 
 class NCLModel:
     def __init__(self, _display_shelf):
@@ -111,32 +135,33 @@ class NCLModel:
         
         def id_f(f, gamma): return np.array(f)
         self.f_func = id_f
-        self._f_mat = []
+        self._dist_mat = []
     
-    def precompute_f_mat(self, _f, _f_params = None):
-        self._f_mat = []
+    def compute_dist_mat(self, _dist_func):
+        self._dist_mat = []
         
         for k in range(self.display_shelf.num_designs()):
-            self._f_mat.append([])
+            self._dist_mat.append([])
             for i in range(self.display_shelf.num_items(k)):
-                self._f_mat[-1].append([])
+                self._dist_mat[-1].append([])
                 
                 if (self.display_shelf.designs[k][i] == None):
-                    self._f_mat[-1][-1].append(0)
+                    self._dist_mat[-1][-1].append(0)
                 else:
                     xi = self.display_shelf.designs[k][i][0]
                     yi = self.display_shelf.designs[k][i][1]
                     
                     for j in range(self.display_shelf.num_items(k)):
                         if ((i == j) or (self.display_shelf.designs[k][j] == None)):
-                            self._f_mat[-1][-1].append(0)
+                            
+                            self._dist_mat[-1][-1].append(0)
                         else:
                             xj = self.display_shelf.designs[k][j][0]
                             yj = self.display_shelf.designs[k][j][1]
                             
-                            self._f_mat[-1][-1].append(_f((xi,yi),(xj,yj), _f_params))
+                            self._dist_mat[-1][-1].append(_dist_func((xi,yi),(xj,yj)))
                             
-        self._f_mat = np.array(self._f_mat)
+        self._dist_mat = np.array(self._dist_mat)
     
     def compute_model(self, _x, _a, _rho, _display_id = 0, _perm = None, _f_func = None, _gamma = None, _s = None):
         num_items = self.display_shelf.num_items(_display_id)
@@ -159,9 +184,9 @@ class NCLModel:
             perm = np.array(_perm)
         
         if (_f_func == None):
-            f = self.f_func(self._f_mat[_display_id], _gamma)
+            f = self.f_func(self._dist_mat[_display_id], _gamma)
         else:
-            f = _f_func(self._f_mat[_display_id], _gamma)
+            f = _f_func(self._dist_mat[_display_id], _gamma)
 
         f = np.transpose(np.transpose(f[perm])[perm])
         D_alpha = np.sum(f, axis = 1)
@@ -175,29 +200,44 @@ class NCLModel:
     
     # NCL Exponential model    
     @classmethod
-    def ExpModel(cls, _display_shelf):
+    def ExpModel(cls, _display_shelf, _dist_func = dist_l2):
         model = cls(_display_shelf)
-        def pow_f(f, gamma): return np.power(np.array(f), gamma)
+        def pow_f(f, gamma): 
+            if (gamma == None): gamma = 1.0
+            return np.power(np.array(f), gamma)
         model.f_func = pow_f
-        model.precompute_f_mat(f_exp)
+        model.compute_dist_mat(_dist_func)
+        model._dist_mat = f_exp(model._dist_mat, 1.0)
         return model
     
     # NCL Inverse model
     @classmethod
-    def InvModel(cls, _display_shelf):
+    def InvModel(cls, _display_shelf, _dist_func = dist_l2):
         model = cls(_display_shelf)
-        def pow_f(f, gamma): return np.power(np.array(f), gamma)
+        def pow_f(f, gamma): 
+            if (gamma == None): gamma = 1.0
+            return np.power(np.array(f), gamma)
         model.f_func = pow_f
-        model.precompute_f_mat(f_inv)
+        model.compute_dist_mat(_dist_func)
+        model._dist_mat = f_inv(model._dist_mat, 1.0)
         return model    
+    
+    # NCL Tanh model
+    @classmethod
+    def TanhModel(cls, _display_shelf, _dist_func = dist_l2):
+        model = cls(_display_shelf)
+        model.f_func = f_tanh
+        model.compute_dist_mat(_dist_func)
+        return model
     
     # NCL adjecent model. fij = 1 if i is adjecent to j and 0 otherwise.
     @classmethod
-    def AdjModel(cls, _num_rows, _num_cols):
+    def AdjModel(cls, _num_rows, _num_cols, _dist_func = dist_l2):
         _display_shelf = DisplayShelf(_num_rows*_num_cols, _num_cols)
         _display_shelf.generate_designs(1, _num_rows*_num_cols, True)
         model = cls(_display_shelf)
-        model.precompute_f_mat(f_hard_tanh, 1.1)
+        model.compute_dist_mat(_dist_func)
+        model._dist_mat = f_hard_tanh(model._dist_mat, 1.1)
         return model
     
     # Free-style model where all fij must be specified. 
@@ -214,12 +254,12 @@ class NCLModel:
                     _f[j][i] = _f[i][j]
             return _f
         model.f_func = f_mat_func
-        model.precompute_f_mat(f_const)
+        model.compute_dist_mat(dist_const)
         return model
 
 
 ds = DisplayShelf(4, 2)
-ds.generate_designs(5, 4, True)
+ds.generate_designs(1, 4, True)
 model = NCLModel(ds)
-model.precompute_f_mat(f_inv)
-model.compute_model([0,1,2,3], [1,2,3,4], 0, 0)
+model.compute_dist_mat(dist_l2)
+model.compute_model([0,1,2,3], [1,2,3,4], 0, 0, _f_func = f_inv, _gamma=1.0)
